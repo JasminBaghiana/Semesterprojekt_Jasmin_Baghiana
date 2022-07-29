@@ -1,0 +1,296 @@
+---
+title: "Das Aufstreben der #metoo Debatte in Deutschland"
+author: "Jasmin_Baghiana"
+date: "7/28/2022"
+output:
+  slidy_presentation: default
+  ioslides_presentation: default
+bibliography: quellen.bib
+link-citation: yes
+---
+
+
+# Einleitung
+Ende 2017 leiten Schauspielerinnen aus Holllywood Belästigungsvorwürfe gegenüber Harvey Weinstein ein, die unter dem Hashtag #metoo eine globale Debatte ins Rollen bringen sollte.¹ Jede, die selbst sexuell übergriffige Handlungen erlebt hat, solle dies der Welt kundtun.Nachdem dieser Hashtag unter anderem auf Twitter viral geht, findet er auch im deutschen Raums des sozialen Netzwerks Gebrauch. Bis zu jenem Zeitpunkt wurde eher Stillschweigen statt Sühne der Täter*(innen) gepredigt. Mit dem Anstoß der Enttabuisierung und des Bekanntmachens eines sexistischen Machtmissbrauchsystems beginnt eine neue Ära des Feminismus.
+
+Diese Analyse soll sich um die Frage drehen: wer sind zu Beginn der #Metoo Debatte (15.10.2017) in Deutschland die führenden Accounts auf der Plattform Twitter? Besonders zu Beginn kann es interessant sein, ein Netzwerk zu verstehen, das sich womöglich selbst vorangetrieben hat. Wer sind diese Menschen? Sind es bekannte Accounts oder eher durch die Debatte aufstrebende Stimmen? Die Daten wurden hierbei unter dem Hashtag #metoo von Twitter gezogen.
+
+
+# Analyse
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+Diese Analyse soll sich um die Frage drehen: wer sind zu Beginn der #Metoo Debatte (15.10.2017) in Deutschland die führenden Accounts auf der Plattform Twitter? Besonders zu Beginn kann es interessant sein, ein Netzwerk zu verstehen, das sich womöglich selbst vorangetrieben hat. Wer sind diese Menschen? Sind es bekannte Accounts oder eher durch die Debatte aufstrebende Stimmen? Die Daten wurden hierbei unter dem Hashtag #metoo von Twitter gezogen.
+```{r}
+#lade Library zum Bereinigen
+library(readr)
+library(tidyverse)
+library(stringr)
+```
+
+```{r}
+#lade datensatz
+metootweets <- read_rds("data/metoo.rds")
+```
+
+
+# Exploration:
+```{r}
+glimpse(metootweets)
+```
+
+
+```{r}
+metoooriginal<- metootweets%>%
+  filter(is_retweet, is_retweet=TRUE)
+```
+
+Es werden all jene Accounts betrachtet, die retweeted worden sind. Hintergrund ist, dass diese durch Das "Retweetedwerden" de facto eine gewisse Resonanz innehaben.
+
+```{r}
+#spalte text bereinigen nach retweets, nur retweets drinnen behalten, target und source benennen
+metoooriginal<- metoooriginal%>%
+filter(is_retweet, is_retweet= TRUE)%>%
+  mutate(text = gsub('"', "", text)) %>%
+  mutate(target = grepl("^RT", text)) %>%
+  mutate(target= gsub(".*RT @", "",text )) %>%
+  mutate(target= gsub(":.*", "", target))%>%
+  rename(Geraet= source)%>%
+  rename(source= screen_name)%>%
+  select(text,retweet_count,created_at,
+         retweet_count,is_retweet,target, source)
+```
+
+
+```{r}
+metoooriginal%>%
+count(target, sort= T)
+```
+
+Es gibt eindeutig Personen, die öfters retweeted worden sind, weshalb es sich lohnt, einen genaueren Blick auf das Netzwerk zu werfen. Bekannte journalistische Plattformen oder Formate wie extra3,tagesschau oder SZ sind mitunter am häufigsten retweeted worden. Aber welche Rollen spielen sie wirklich?
+
+
+# Netzwerkanalyse
+```{r}
+#lade netzwerkrelevante Packages
+library(ggraph)
+library(tidygraph)
+
+#kreiere ein objekt, in dem alle vorhandenen nodes(=Tweeter*innen) enthalten sind
+
+#für source (=Tweetenden)
+sources <- metoooriginal%>%
+  distinct(source) %>%
+  rename(label = source)
+
+#für targets (=retweetete)
+target <- metoooriginal%>%
+  distinct(target) %>%
+  rename(label = target)
+
+#kombiniere alle nodes aus zwei variablen
+nodes <- full_join(sources, target, by = "label")
+
+#create links
+
+links <- metoooriginal %>%
+  group_by(source, target) %>%
+  summarise(weight = n())
+```
+
+```{r}
+#baue network
+
+metoo_activity_graph<-  as_tbl_graph(links, nodes, directed = T)
+metoo_activity_graph
+
+#kalkuliere Netzwerk mit Variablen über Zentralität und Cluster
+
+metoo_activity_graph<- as_tbl_graph(metoo_activity_graph, directed = T)%>%
+  activate(nodes)%>% #/activate(edges)
+mutate(neighbours= centrality_degree(mode="in"))%>%
+  mutate(cluster= group_infomap())
+
+  
+
+#wenn nur Nodes benutzen werden wollen 
+nodes_metoo <- metoo_activity_graph%>%
+  activate(nodes)%>%
+  as_tibble()
+```
+
+# Visualisierung
+
+
+Zunächst einmal soll herausgefunden werden, welche Accounts in Deutschland an größter Bedeutung gefunden hatten. Der nächste Schritt wäre, zu analysieren, wo sich diese innerhalb des Netzwerks befinden. Gibt es häufig zitierte Accounts, die sich aber nicht in einem der dominierenden CLuster befinden? Welche Cluster ist das bedeutsamste, und warum?
+
+
+
+```{r}
+nodes_metoo%>%
+  arrange(-neighbours)
+```
+
+Beobachtung: Besonders Accounts wie extra3, tagesschau und ainyrockstar stechen hervor. Da es 1053 Accounts gibt, die mindestens einmal retweeted worden sind, lohnt es sich, besonders diese zu betrachten. Es wird ein Fokus auf alle Accounts betrachtet, die über 100 neighbours haben. 
+
+```{r}
+metoo_activity_graph%>%
+  activate(nodes)%>%
+  filter(neighbours>0)%>%
+  ggraph(.,layout="kk")+
+  geom_edge_link(aes(width=weight),alpha= 0.2)+
+  geom_node_point(aes(size=neighbours, color=ifelse(neighbours>100, "über 100 neighbours", "weniger")))+
+  theme_graph()
+```
+
+
+Viele relevante Accounts befinden sich im Zentrum des Netzwerks. Ausnahmen von Accounts mit über 100 neighbours gibt es, wie beispielsweise "JuliaVanNixen" oder "patriarchator".
+
+```{r}
+metoo_activity_graph%>%
+  activate(nodes)%>%
+  filter(neighbours>20)%>%
+  ggraph(.,layout="kk")+
+  geom_edge_link(aes(width=weight),alpha= 0.2)+
+  geom_node_point(aes(size=neighbours, color=ifelse(neighbours>100, "über 100 neighbours", "weniger")))+
+  geom_node_text(aes(label= ifelse(neighbours>100, name, "")), size= 3)+
+  theme_graph()+
+  theme(legend.position = "none")
+```
+
+ 
+
+
+```{r}
+nodes_metoo%>%
+  count(cluster)
+```
+Es gibt 10 Cluster, die im Folgenden genauer angeschaut werden sollen. Wichtig ist, zu erfahren, wo sich die relevanten Accounts befinden: in einem der größeren Clustern?
+
+```{r}
+metoo_activity_graph%>%
+  activate(nodes)%>%
+  filter(cluster<11)%>%
+  ggraph(.,layout="fr")+
+  geom_edge_link(aes(width=weight),alpha=0.1,show.legend = F)+
+   geom_node_point(aes(color =factor(cluster), size=neighbours))+
+  geom_node_text(aes(label= ifelse(neighbours>100,name,"")), size= 6,show.legend = F,repel = F)+
+  theme_graph()+
+    theme(legend.position = "none")
+  
+```
+Ausreißer in diesem Netzwerk sind der bereits beobachtbare Account "JuliaVanBlixen" sowie "ainyrockstar". Um nähere Zusammenhänge zu beobachten, werden diese nun aus der Visualisierung herausgenommen.
+```{r}
+nodes_metoo%>%
+  filter(name== "JuliaVanBlixen"  | name== "ainyrockstar")
+
+nodes_metoo%>%
+  filter(neighbours>100)
+```
+Die Accounts befinden sich in CLuster 3 und 10.
+```{r}
+metoo_activity_graph%>%
+  activate(nodes)%>%
+  filter(cluster<11)%>%
+  filter(cluster!= 3 & cluster != 10)%>%
+  ggraph(.,layout="fr")+
+  geom_edge_link(aes(width=weight),alpha=0.1,show.legend = F, color= "lightgrey")+
+   geom_node_point(aes(color =factor(cluster), size=neighbours))+
+  geom_node_text(aes(label= ifelse(neighbours>100,name,"")), size= 4)+
+  theme_graph()+
+    theme(legend.position = "none")
+```
+
+
+Interessant ist, dass alle Accounts über 100 neighbours in verschiedenen Clustern sind. Das geht aus vorangegangenen Rechnungen hervor. Diese Beobachtung spiegelt sich auch in der Visualisierung wider. Die relevantesten Accounts befinden sich in der Mitte ihres jeweiligen Clusters und sind sozusagen Alleinherrscher über die vorherrschende Meinung in demselben. Die Cluster rund um "extra3" sowie "Birgit_Riegler" scheinen weiter abgekapselt von dem Zentrum des Meinungsaustausches zu sein, da weniger links erkennbar sind. Letztere ist Redakteurin für "derstandard.at". Während sich die "Tagesschau" noch am Rande des Zentrums befindet, sind die führenden Accounts primär Privatkonten. Auf diese Twitteraccounts soll nun ein genauerer Blick geworfen werden: Sind diese auch nach dem Aufkommen der #metoo Debatte populär? Und wie viel Mühe geben sie sich, auf Twitter aktiv zu sein?
+
+
+# Analyse der einflussreichsten Twitteraccounts
+
+Wer sind diese Menschen, die sowohl die häufigsten Retweets haben als auch in großen Clustern eine Rolle spielen? Sind die schon zuvor einflussreich gewesen? Wie aktiv sind die auf Twitter?
+```{r}
+#lade Pakete
+library(rtweet)
+devtools::install_github("gadenbuie/tweetrmd")
+devtools::install_github("gadenbuie/tweetrmd")
+library(tidytext)
+library(gridExtra)
+
+#sichere api keys
+ api_key<- "FmqpHUvDb0OUFdOdHX4oA1F0r"
+ api_secret <- "gSg3dF4txK4K5eCaoH90N580hEbQKYS722dOwMRY6885Cgaco7"
+ access_token <- "2207998455-1tjd6URw5rM37Kd4peXVHAQ2eLHwibiOCFTgGw9"
+ access_secret<- "mfouq1jD2JnLwDhteLGonmxxRkkWLkWHN5Jd0HBwNBvqM"
+ 
+#Erstellung des tokens
+ 
+ token <- create_token(
+   app="metooapp", 
+   consumer_key = api_key,
+   consumer_secret = api_secret,
+   access_token = access_token,
+   access_secret = access_secret
+ )
+ 
+# Timelines ziehen home= T,parse=T,
+marco_fechner<- get_timeline("PankowerPflanze",  n=1000)
+meersein17<- get_timeline("meersein17", n=1000)
+klaassenbeste<- get_timeline("klaassenbeste",  n=1000)
+kattascha<- get_timeline("kattascha", n=1000)
+wittschicat<- get_timeline("wittschicat",  n=1000)
+```
+Bis auf klaassenbeste gibt es alle Accounts noch. Anmerkung: Marco Fechner= PankowerPflanze
+
+#  Aktivität beobachten
+
+```{r}
+p1<-  ts_plot(marco_fechner, "weeks")+
+  labs(y="Tweets", x="Time", title="Marco Fechner")+
+  theme_minimal()
+p1
+
+p2<- ts_plot(meersein17, "weeks")+
+  labs(y="Tweets", x="Time", title="meersein17")+
+  theme_minimal()
+p2
+
+p3<- ts_plot(kattascha, "weeks")+
+  labs(x="Time", y="Tweets", title="kattascha")+
+  theme_minimal()
+p3
+
+p4<- ts_plot(wittschicat, "weeks")+
+  labs(y="Tweets", x="Time", title="wittschicat")+
+  theme_minimal()
+p4
+
+grid.arrange(p1,p2, p3, p4, nrow=2)
+
+```
+
+
+
+```{r}
+followers <- lookup_users(c("PankowerPflanze","meersein17","kattascha","wittschicat"))
+glimpse(followers)
+
+```
+
+Beobachtung: Alle Accounts sind noch relativ aktiv. Dass bei Marco Fechner die letzten tausend selbst verfassten Tweets nur bis Mitte Juni reichen, stellt ihn als klar aktivsten Twitteraccount heraus. Als zweites dementsprechend meersein17, dann wittschicat und als letztes kattascha. Auch die y-Achsen sind untershiedich, was zeigt, dass beispielsweise meersein17 punktuell viel auf dem eigenen Twitteraccount ausspielt. Marco Fechner liefert an sich kontinuierlich am meisten, Tendenz leicht sinkend. Bei den anderen Beiden ist die Anzahl der Posts sehr viel fluktuierender. Darus lässt sich ziehen, dass besonders Marco Fechner eine große Reichweite hat. Die anderen könnten besonders themenspezifisch aktiv sein oder zu bestimmten tagesaktuellen Ereignissen. Trotzdem teilen alle eine dennoch sehr präsente Haltung auf Twitter. Die Followeranzahl von marco_fechner beträgt 8512, die von meersein17 2062, von kattascha 87905 und von wittschicat 9884. Erstaunlich ist, dass obwohl kattascha mitunter am wenigsten und unregelmäßigsten twittert, sie doch die größte Followerreichweite hat. Die dahinterstehende Frau Katharina Nocun ist politikwissenschaftliche Autorin und Aktivistin. 
+```{r}
+metoooriginal%>%
+  filter(target=="kattascha")
+```
+
+
+
+
+# Fazit 
+In der deutschen #metoo Debatte waren vor allem private und journalistische Accounts die treibenden und einflussreichsten Accounts. Besonders Marco Fechner, meersein17, kattascha, klaassenbeste und wittschicat standen eindeutig im Zentrum der Debatte und bedienten die größte Supgruppe innerhalb des Netzwerks. Das heißt, letztlich haben diese die meisten Accounts erreicht und das Narrativ bestimmt. Auch untereinander herrschten zwischen den Clustern rund um eben genannte Accounts reger Austausch. Andere Cluster rund um Accounts wie die der tagesschau oder extra3 blieben eher abgekapselt. Bei genaueren Betrachtung der Accounts Marco Fechner, meersein17, kattascha und wittschicat fällt auf, dass Erstgenannter verhältnismäßig am aktivsten ist. Den Account klaassenbeste gibt es dagegen nicht mehr. Letztlich sind aber alle anderen Accounts auch aktiv und nicht nur Phänomene der Metoodebatte. Ein kurzer Blick auf ihre retweeteten Posts zeigt, sie ist klar feministisch ausgerichtet. Damit zeigt sich, dass der rege Austausch im Zentrum des Netzwerks zu Beginn der deutschen #metoo Debatte befürwortend und wohlwollend ist. 
+
+# Quellen
+Ein Artikel aus der Zeit[@Artikel]
+Für die Datenerhebung der einflussreichsten Twitteraccounts [@Twitterhashtags]
+
